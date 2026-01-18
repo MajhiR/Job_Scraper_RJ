@@ -103,8 +103,9 @@ def bulk_scrape_jobs(request):
     
     # Extract parameters
     max_age_hours = request_data.get('max_age_hours', 48)
+    max_pages = request_data.get('max_pages', 3)
     include_portals = request_data.get('include_portals', 
-                                      ['guru', 'truelancer', 'twine', 'remotework'])
+                                      ['weworkremotely'])  # Changed default to focus on working portal
     filter_ai_ml = request_data.get('filter_ai_ml', True)
     
     try:
@@ -122,7 +123,9 @@ def bulk_scrape_jobs(request):
         scraper_service = JobScraperService(max_workers=4)
         results = scraper_service.scrape_all_portals(
             max_age_hours=max_age_hours,
-            include_portals=include_portals
+            include_portals=include_portals,
+            max_pages=max_pages,
+            filter_ai_ml=filter_ai_ml
         )
         
         # Store jobs in database

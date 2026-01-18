@@ -422,42 +422,71 @@ class WeWorkRemotelyScraper(BaseScraper):
     
     BASE_URL = "https://weworkremotely.com"
     
-    def scrape_jobs(self) -> List[Dict]:
-        """Scrape jobs from WeWorkRemotely.com"""
+    def scrape_jobs(self, max_pages: int = 3) -> List[Dict]:
+        """
+        Scrape jobs from WeWorkRemotely.com with pagination support.
+        
+        Args:
+            max_pages: Maximum number of pages to scrape (default 3)
+        """
         try:
-            logger.info("Starting WeWorkRemotely.com scraping...")
+            logger.info(f"Starting WeWorkRemotely.com scraping (max {max_pages} pages)...")
             jobs = []
             
-            # Try main jobs page
-            url = f"{self.BASE_URL}/remote-jobs"
-            response = self.session.get(url, timeout=self.timeout)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.content, 'lxml')
-            
-            # WeWorkRemotely uses li.feature for job listings
-            job_elements = soup.find_all('li', class_='feature')
-            
-            if not job_elements:
-                # Try alternative selectors
-                job_elements = soup.find_all('div', class_='job')
-            
-            if not job_elements:
-                # Try finding all list items and filter
-                job_elements = soup.find_all('div', {'data-job-id': True})
-            
-            logger.info(f"Found {len(job_elements)} job elements to parse")
-            
-            for element in job_elements:
+            for page in range(1, max_pages + 1):
                 try:
-                    job = self._parse_weworkremotely_job(element)
-                    if job and job.get('title') and 'View' not in job.get('title', ''):
-                        jobs.append(job)
+                    # Pagination URL format
+                    if page == 1:
+                        url = f"{self.BASE_URL}/remote-jobs"
+                    else:
+                        url = f"{self.BASE_URL}/remote-jobs?page={page}"
+                    
+                    logger.info(f"Scraping page {page}: {url}")
+                    response = self.session.get(url, timeout=self.timeout)
+                    response.raise_for_status()
+                    
+                    soup = BeautifulSoup(response.content, 'lxml')
+                    
+                    # WeWorkRemotely uses li.feature for job listings
+                    job_elements = soup.find_all('li', class_='feature')
+                    
+                    if not job_elements:
+                        # Try alternative selectors
+                        job_elements = soup.find_all('div', class_='job')
+                    
+                    if not job_elements:
+                        # Try finding all list items and filter
+                        job_elements = soup.find_all('div', {'data-job-id': True})
+                    
+                    logger.info(f"Page {page}: Found {len(job_elements)} job elements to parse")
+                    
+                    page_jobs = 0
+                    for element in job_elements:
+                        try:
+                            job = self._parse_weworkremotely_job(element)
+                            if job and job.get('title') and 'View' not in job.get('title', ''):
+                                jobs.append(job)
+                                page_jobs += 1
+                        except Exception as e:
+                            logger.debug(f"Error parsing WeWorkRemotely job: {e}")
+                            continue
+                    
+                    logger.info(f"Page {page}: Scraped {page_jobs} valid jobs")
+                    
+                    # Check if there's a next page
+                    next_button = soup.find('a', {'rel': 'next'})
+                    if not next_button and page == 1:
+                        # Only 1 page available
+                        logger.info("Only 1 page of results available")
+                        break
+                    
+                    time.sleep(1)  # Be respectful to the server
+                    
                 except Exception as e:
-                    logger.debug(f"Error parsing WeWorkRemotely job: {e}")
-                    continue
+                    logger.warning(f"Error scraping page {page}: {e}")
+                    break
             
-            logger.info(f"Scraped {len(jobs)} valid jobs from WeWorkRemotely.com")
+            logger.info(f"Scraped {len(jobs)} total valid jobs from WeWorkRemotely.com")
             return jobs
             
         except Exception as e:
@@ -490,31 +519,8 @@ class WeWorkRemotelyScraper(BaseScraper):
             if url and not url.startswith('http'):
                 url = self.BASE_URL + url
             
-            # Find company name - look for any link with /company/ in href
-            company_link = element.find('a', {'href': lambda x: x and '/company/' in x})
-            company_name = 'Unknown'
-            if company_link:
-                # Try to get text from the link or nearby elements
-                text = company_link.get_text(strip=True)
-                # If it's just "View Company Profile", look for the name in the listing
-                if 'View Company Profile' in text or not text:
-                    # Try to find company name in the listing content
-                    all_text = element.get_text(separator=' ', strip=True)
-                    # Company name usually appears after the job title
-                    parts = all_text.split(title)
-                    if len(parts) > 1:
-                        # Take words after title until we hit other keywords
-                        after_title = parts[1].strip()
-                        words = after_title.split()
-                        # Get company name (first few words before keywords like "New", "Full-Time", etc.)
-                        company_words = []
-                        for word in words:
-                            if word in ['New', 'Featured', 'Full-Time', 'Part-Time', 'Hourly', 'United', 'States', 'Anywhere', 'World', 'Remote']:
-                                break
-                            company_words.append(word)
-                        company_name = ' '.join(company_words) if company_words else 'Unknown'
-                else:
-                    company_name = text
+            # Find company name - improved extraction
+            company_name = self._extract_company_name(element, title)
             
             # Get description from the listing text or meta info
             description = ''
@@ -541,6 +547,74 @@ class WeWorkRemotelyScraper(BaseScraper):
         except Exception as e:
             logger.error(f"Error parsing WeWorkRemotely job element: {e}")
             return None
+    
+    def _extract_company_name(self, element, title: str) -> str:
+        """
+        Extract company name from WeWorkRemotely job listing.
+        Improved extraction to handle various formats.
+        """
+        company_name = 'Unknown'
+        
+        try:
+            # Method 1: Find company link explicitly
+            company_link = element.find('a', {'href': lambda x: x and '/company/' in x})
+            if company_link:
+                text = company_link.get_text(strip=True)
+                if text and 'View Company Profile' not in text:
+                    return text
+            
+            # Method 2: Look for company name in structured format
+            # WeWorkRemotely often has: Title | Company | Location
+            header = element.find('div', class_='new-listing__header')
+            if header:
+                # Try to find company info in the header area
+                all_links = header.find_all('a')
+                for link in all_links:
+                    href = link.get('href', '')
+                    text = link.get_text(strip=True)
+                    
+                    # Skip certain keywords
+                    if any(skip in text.lower() for skip in ['view company', 'apply', 'save']):
+                        continue
+                    
+                    # Look for company URLs
+                    if '/company/' in href or '/remote-jobs/' not in href:
+                        if text and len(text) > 0 and len(text) < 100:
+                            return text
+            
+            # Method 3: Extract from full text pattern
+            full_text = element.get_text(separator=' ', strip=True)
+            
+            # Company is often between title and location/job type keywords
+            if title in full_text:
+                idx = full_text.index(title)
+                after_title = full_text[idx + len(title):].strip()
+                
+                # Split by common keywords to find company name
+                keywords = ['Remote', 'United States', 'Worldwide', 'Full-time', 'Part-time', 
+                           'Hourly', 'New', 'Featured', 'Apply', 'View', 'Salary', '$']
+                
+                for keyword in keywords:
+                    if keyword in after_title:
+                        before_keyword = after_title.split(keyword)[0].strip()
+                        # Clean up the text
+                        company_words = before_keyword.split()[:5]  # Take first 5 words
+                        extracted = ' '.join(company_words)
+                        if extracted and len(extracted) > 2 and len(extracted) < 100:
+                            return extracted
+            
+            # Method 4: Try to find company info container
+            company_section = element.find('div', class_='new-listing__company')
+            if company_section:
+                company_name_text = company_section.get_text(strip=True)
+                if company_name_text and 'View Company Profile' not in company_name_text:
+                    return company_name_text
+            
+            return company_name
+            
+        except Exception as e:
+            logger.debug(f"Error extracting company name: {e}")
+            return company_name
 
 
 class JobScraperService:
@@ -557,18 +631,20 @@ class JobScraperService:
     def __init__(self, max_workers=4):
         self.max_workers = max_workers
     
-    def scrape_all_portals(self, max_age_hours=48, include_portals=None) -> Dict:
+    def scrape_all_portals(self, max_age_hours=48, include_portals=None, max_pages: int = 3, filter_ai_ml: bool = True) -> Dict:
         """
         Scrape jobs from all portals using thread pool.
         
         Args:
             max_age_hours: Only include jobs posted within last N hours
             include_portals: List of specific portals to scrape. If None, scrapes all.
+            max_pages: Maximum pages to scrape (used for paginated portals)
+            filter_ai_ml: If True, only return AI/ML jobs. If False, return all jobs.
             
         Returns:
             Dictionary with scraped data and statistics
         """
-        logger.info("Starting bulk scraping from all portals...")
+        logger.info(f"Starting bulk scraping from all portals (max_pages={max_pages}, filter_ai_ml={filter_ai_ml})...")
         start_time = time.time()
         
         # Determine which portals to scrape
@@ -587,7 +663,7 @@ class JobScraperService:
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit scraping tasks
             future_to_portal = {
-                executor.submit(self._scrape_portal, portal_name): portal_name
+                executor.submit(self._scrape_portal, portal_name, max_pages): portal_name
                 for portal_name in portals_to_scrape
             }
             
@@ -617,9 +693,13 @@ class JobScraperService:
         
         return results
     
-    def _scrape_portal(self, portal_name: str) -> Tuple[List, int, str]:
+    def _scrape_portal(self, portal_name: str, max_pages: int = 3) -> Tuple[List, int, str]:
         """
         Scrape a single portal.
+        
+        Args:
+            portal_name: Name of the portal to scrape
+            max_pages: Maximum pages to scrape (used for paginated portals like WeWorkRemotely)
         
         Returns:
             Tuple of (jobs_list, ai_ml_count, error_message)
@@ -633,7 +713,12 @@ class JobScraperService:
                 return [], 0, f"Unknown portal: {portal_name}"
             
             scraper = scraper_class()
-            jobs = scraper.scrape_jobs()
+            
+            # Special handling for WeWorkRemotely with pagination
+            if portal_name == 'weworkremotely':
+                jobs = scraper.scrape_jobs(max_pages=max_pages)
+            else:
+                jobs = scraper.scrape_jobs()
             
             # Filter for AI/ML jobs
             filtered_jobs = []
