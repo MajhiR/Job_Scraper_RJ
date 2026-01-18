@@ -1,0 +1,118 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environments
+ml_job_env/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database
+db.sqlite3
+*.db
+
+# Logs
+logs/
+*.log
+
+# Media and static files
+media/
+staticfiles/
+.collect_static/
+
+# Build and distribution
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Scrapy
+.scrapy
+
+# Django
+*.pyc
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Documentation
+site/
+docs/_build/
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# OS specific
+.DS_Store
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Python
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Node (if using frontend tools)
+node_modules/
+npm-debug.log
+yarn-error.log
