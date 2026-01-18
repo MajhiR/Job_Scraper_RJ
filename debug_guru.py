@@ -1,18 +1,28 @@
 #!/usr/bin/env python
-"""Diagnostic script to inspect Guru.com HTML structure."""
+"""Diagnostic script to inspect Guru.com HTML structure and database verification."""
 
+import os
+import django
 import requests
 from bs4 import BeautifulSoup
 import re
+import json
+
+# Setup Django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+django.setup()
+
+from jobs.models import Job, ScrapingMetadata
+from companies.models import Company
 
 BASE_URL = "https://www.guru.com/jobs?q=machine%20learning"
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 }
 
-print("=" * 80)
-print("GURU.COM DIAGNOSTIC SCRIPT")
-print("=" * 80)
+print("=" * 100)
+print("GURU.COM DIAGNOSTIC & DATABASE VERIFICATION SCRIPT")
+print("=" * 100)
 print(f"Target URL: {BASE_URL}\n")
 
 try:
@@ -107,12 +117,106 @@ try:
                 print(f"✓ {desc}: {len(elements)} found")
         
         # Print first 2000 chars of HTML for manual inspection
-        print("\n" + "=" * 80)
+        print("\n" + "=" * 100)
         print("HTML SNIPPET (first 2000 chars):")
-        print("-" * 80)
+        print("-" * 100)
         print(response.text[:2000])
         
 except requests.exceptions.RequestException as e:
     print(f"ERROR: {str(e)}")
 except Exception as e:
     print(f"ERROR: {str(e)}")
+
+# DATABASE VERIFICATION
+print("\n\n" + "=" * 100)
+print("DATABASE VERIFICATION - GURU.COM JOBS")
+print("=" * 100)
+
+# Query jobs from Guru.com in database
+guru_jobs = Job.objects.filter(source_portal='guru').order_by('-job_posted_at')
+print(f"\n✓ Found {guru_jobs.count()} Guru.com jobs in database\n")
+
+if guru_jobs.exists():
+    print("GURU.COM JOB DETAILS:")
+    print("-" * 100)
+    
+    for idx, job in enumerate(guru_jobs[:10], 1):  # Show first 10
+        print(f"\n{idx}. {job.title}")
+        print(f"   Company: {job.company.name if job.company else 'Unknown'}")
+        print(f"   URL: {job.job_url}")
+        print(f"   Posted: {job.job_posted_at}")
+        print(f"   AI/ML Job: {'Yes' if job.is_ai_ml_job else 'No'} (Score: {job.ai_ml_score:.2f}%)")
+    
+    # URL Accessibility Test
+    print("\n" + "=" * 100)
+    print("URL ACCESSIBILITY TEST - GURU.COM")
+    print("-" * 100)
+    
+    accessible = 0
+    failed = 0
+    
+    for idx, job in enumerate(guru_jobs[:5], 1):  # Test first 5
+        if not job.job_url:
+            print(f"\n{idx}. ⚠ {job.title} - NO URL")
+            failed += 1
+            continue
+        
+        try:
+            response = requests.get(job.job_url, headers=HEADERS, timeout=10)
+            if response.status_code == 200:
+                print(f"\n{idx}. ✓ {job.title[:50]}")
+                print(f"   Status: {response.status_code} OK")
+                accessible += 1
+            else:
+                print(f"\n{idx}. ✗ {job.title[:50]}")
+                print(f"   Status: {response.status_code}")
+                failed += 1
+        except Exception as e:
+            print(f"\n{idx}. ✗ {job.title[:50]}")
+            print(f"   Error: {str(e)[:50]}")
+            failed += 1
+    
+    print(f"\n✓ Accessible: {accessible} | ✗ Failed: {failed}")
+    
+    # Company Extraction Analysis
+    print("\n" + "=" * 100)
+    print("COMPANY EXTRACTION ANALYSIS - GURU.COM")
+    print("-" * 100)
+    
+    companies = Company.objects.filter(job__source_portal='guru').distinct()
+    print(f"\nTotal Companies: {companies.count()}\n")
+    
+    for company in companies[:10]:
+        job_count = Job.objects.filter(company=company, source_portal='guru').count()
+        print(f"- {company.name}: {job_count} jobs")
+    
+    # AI/ML Scoring Statistics
+    print("\n" + "=" * 100)
+    print("AI/ML SCORING STATISTICS - GURU.COM")
+    print("-" * 100)
+    
+    ai_ml_jobs = guru_jobs.filter(is_ai_ml_job=True)
+    print(f"\nTotal AI/ML Jobs: {ai_ml_jobs.count()}")
+    
+    if ai_ml_jobs.exists():
+        scores = [j.ai_ml_score for j in ai_ml_jobs]
+        print(f"Score Range: {min(scores):.2f}% - {max(scores):.2f}%")
+        print(f"Average Score: {sum(scores)/len(scores):.2f}%")
+    
+    # Scraping History
+    print("\n" + "=" * 100)
+    print("SCRAPING OPERATION HISTORY - GURU.COM")
+    print("-" * 100)
+    
+    metadata = ScrapingMetadata.objects.filter(source='guru').order_by('-created_at')[:5]
+    if metadata.exists():
+        for meta in metadata:
+            print(f"\n• {meta.created_at}")
+            print(f"  Jobs Found: {meta.jobs_found}")
+            print(f"  Status: {meta.status}")
+            if meta.error_message:
+                print(f"  Error: {meta.error_message}")
+    else:
+        print("No scraping history found.")
+else:
+    print("No Guru.com jobs found in database. Run scraper first.")
