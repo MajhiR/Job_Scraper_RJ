@@ -151,7 +151,7 @@ def bulk_scrape_jobs(request):
                             'job_url': job_data.get('url', ''),
                             'source_portal': portal_name,
                             'company': company,
-                            'job_posted_at': datetime.now(),
+                            'job_posted_at': datetime.now(timezone.utc),
                             'is_ai_ml_job': True,  # Already filtered
                             'ai_ml_score': job_data.get('ai_ml_score', 0),
                             'metadata': job_data,
@@ -281,13 +281,13 @@ def realtime_scrape_guru(request):
                 
                 # Create job record
                 job, created = Job.objects.create(
-                    job_id=f"guru_{job_data.get('job_id')}_{datetime.now().timestamp()}",
+                    job_id=f"guru_{job_data.get('job_id')}_{datetime.now(timezone.utc).timestamp()}",
                     title=job_data.get('title', ''),
                     description=job_data.get('description', ''),
                     job_url=job_data.get('url', ''),
                     source_portal='guru',
                     company=company,
-                    job_posted_at=datetime.now(),
+                    job_posted_at=datetime.now(timezone.utc),
                     is_ai_ml_job=True,
                     ai_ml_score=score,
                     metadata=job_data,
