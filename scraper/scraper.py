@@ -118,23 +118,68 @@ class GuruScraper(BaseScraper):
     def _parse_guru_job(self, element) -> Dict:
         """Parse a single job element from Guru."""
         try:
+            # Try multiple ways to get job ID
             job_id = element.get('data-job-id', '')
-            title = element.find('h2', class_='job-title')
-            description = element.find('p', class_='job-description')
-            url = element.find('a', class_='job-link')
-            company = element.find('span', class_='company-name')
-            posted_at = element.find('span', class_='posted-time')
+            if not job_id:
+                url_elem = element.find('a')
+                if url_elem and 'href' in url_elem.attrs:
+                    job_id = url_elem['href'].split('/')[-1]
             
-            if not all([job_id, title, description]):
+            # Try multiple selectors for title
+            title = element.find('h2', class_='job-title')
+            if not title:
+                title = element.find('h3')
+            if not title:
+                title = element.find('a')
+            
+            if not title:
                 return None
             
+            title_text = title.get_text(strip=True)
+            if not title_text:
+                return None
+            
+            # Find description - try multiple selectors
+            description = element.find('p', class_='job-description')
+            if not description:
+                description = element.find('div', class_='description')
+            if not description:
+                description = element.find('p')
+            
+            description_text = description.get_text(strip=True)[:500] if description else ''
+            
+            # Find URL
+            url = element.find('a', class_='job-link')
+            if not url:
+                url = element.find('a')
+            
+            url_text = url.get('href', '') if url else ''
+            if url_text and not url_text.startswith('http'):
+                url_text = self.BASE_URL + url_text
+            
+            # Find company name
+            company = element.find('span', class_='company-name')
+            if not company:
+                company = element.find('div', class_='company')
+            if not company:
+                company = element.find('span')
+            
+            company_text = company.get_text(strip=True) if company else 'Unknown'
+            
+            # Find posted time
+            posted_at = element.find('span', class_='posted-time')
+            if not posted_at:
+                posted_at = element.find('span', class_='time')
+            
+            posted_text = posted_at.get_text(strip=True) if posted_at else ''
+            
             return {
-                'job_id': job_id,
-                'title': title.get_text(strip=True) if title else '',
-                'description': description.get_text(strip=True) if description else '',
-                'url': url.get('href', '') if url else '',
-                'company_name': company.get_text(strip=True) if company else '',
-                'posted_at': posted_at.get_text(strip=True) if posted_at else '',
+                'job_id': job_id or f"guru_{title_text[:20]}",
+                'title': title_text,
+                'description': description_text,
+                'url': url_text,
+                'company_name': company_text or 'Unknown',
+                'posted_at': posted_text,
                 'source': 'guru'
             }
         except Exception as e:
@@ -179,23 +224,70 @@ class TruelancerScraper(BaseScraper):
     def _parse_truelancer_job(self, element) -> Dict:
         """Parse a single job element from Truelancer."""
         try:
+            # Try multiple ways to get job ID
             job_id = element.get('data-project-id', '')
-            title = element.find('h3', class_='project-title')
-            description = element.find('p', class_='project-desc')
-            url = element.find('a', class_='project-link')
-            company = element.find('span', class_='client-name')
-            posted_at = element.find('span', class_='posted-time')
+            if not job_id:
+                url_elem = element.find('a')
+                if url_elem and 'href' in url_elem.attrs:
+                    job_id = url_elem['href'].split('/')[-1]
             
-            if not all([job_id, title, description]):
+            # Try multiple selectors for title
+            title = element.find('h3', class_='project-title')
+            if not title:
+                title = element.find('h3')
+            if not title:
+                title = element.find('h2')
+            if not title:
+                title = element.find('a')
+            
+            if not title:
                 return None
             
+            title_text = title.get_text(strip=True)
+            if not title_text:
+                return None
+            
+            # Find description
+            description = element.find('p', class_='project-desc')
+            if not description:
+                description = element.find('p', class_='description')
+            if not description:
+                description = element.find('p')
+            
+            description_text = description.get_text(strip=True)[:500] if description else ''
+            
+            # Find URL
+            url = element.find('a', class_='project-link')
+            if not url:
+                url = element.find('a')
+            
+            url_text = url.get('href', '') if url else ''
+            if url_text and not url_text.startswith('http'):
+                url_text = self.BASE_URL + url_text
+            
+            # Find company/client name
+            company = element.find('span', class_='client-name')
+            if not company:
+                company = element.find('span', class_='author')
+            if not company:
+                company = element.find('div', class_='client')
+            
+            company_text = company.get_text(strip=True) if company else 'Unknown'
+            
+            # Find posted time
+            posted_at = element.find('span', class_='posted-time')
+            if not posted_at:
+                posted_at = element.find('span', class_='time')
+            
+            posted_text = posted_at.get_text(strip=True) if posted_at else ''
+            
             return {
-                'job_id': job_id,
-                'title': title.get_text(strip=True) if title else '',
-                'description': description.get_text(strip=True) if description else '',
-                'url': url.get('href', '') if url else '',
-                'company_name': company.get_text(strip=True) if company else '',
-                'posted_at': posted_at.get_text(strip=True) if posted_at else '',
+                'job_id': job_id or f"truelancer_{title_text[:20]}",
+                'title': title_text,
+                'description': description_text,
+                'url': url_text,
+                'company_name': company_text or 'Unknown',
+                'posted_at': posted_text,
                 'source': 'truelancer'
             }
         except Exception as e:
@@ -336,28 +428,36 @@ class WeWorkRemotelyScraper(BaseScraper):
             logger.info("Starting WeWorkRemotely.com scraping...")
             jobs = []
             
-            # Try main jobs page first
+            # Try main jobs page
             url = f"{self.BASE_URL}/remote-jobs"
             response = self.session.get(url, timeout=self.timeout)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.content, 'lxml')
+            
+            # WeWorkRemotely uses li.feature for job listings
             job_elements = soup.find_all('li', class_='feature')
             
             if not job_elements:
-                # Try alternative selector
+                # Try alternative selectors
                 job_elements = soup.find_all('div', class_='job')
+            
+            if not job_elements:
+                # Try finding all list items and filter
+                job_elements = soup.find_all('div', {'data-job-id': True})
+            
+            logger.info(f"Found {len(job_elements)} job elements to parse")
             
             for element in job_elements:
                 try:
                     job = self._parse_weworkremotely_job(element)
-                    if job:
+                    if job and job.get('title') and 'View' not in job.get('title', ''):
                         jobs.append(job)
                 except Exception as e:
-                    logger.error(f"Error parsing WeWorkRemotely job: {e}")
+                    logger.debug(f"Error parsing WeWorkRemotely job: {e}")
                     continue
             
-            logger.info(f"Scraped {len(jobs)} jobs from WeWorkRemotely.com")
+            logger.info(f"Scraped {len(jobs)} valid jobs from WeWorkRemotely.com")
             return jobs
             
         except Exception as e:
@@ -367,42 +467,75 @@ class WeWorkRemotelyScraper(BaseScraper):
     def _parse_weworkremotely_job(self, element) -> Dict:
         """Parse a single job element from WeWorkRemotely."""
         try:
-            # Find the job title link
-            title_link = element.find('a', class_='job-title')
-            if not title_link:
-                title_link = element.find('a')
+            # WeWorkRemotely structure: h3.new-listing__header__title
+            title_elem = element.find('h3', class_='new-listing__header__title')
+            if not title_elem:
+                title_elem = element.find('h3')
+            if not title_elem:
+                title_elem = element.find('h2')
             
-            if not title_link:
+            if not title_elem:
                 return None
             
-            title = title_link.get_text(strip=True)
-            url = title_link.get('href', '')
+            title = title_elem.get_text(strip=True)
+            if not title:
+                return None
             
-            # Make URL absolute if relative
+            # Find the main job link
+            job_link = element.find('a', class_='listing-link--unlocked')
+            if not job_link:
+                job_link = element.find('a', {'href': lambda x: x and '/remote-jobs/' in x})
+            
+            url = job_link.get('href', '') if job_link else ''
             if url and not url.startswith('http'):
                 url = self.BASE_URL + url
             
-            # Find company name
-            company_elem = element.find('span', class_='company')
-            if not company_elem:
-                company_elem = element.find('div', class_='company-name')
-            company_name = company_elem.get_text(strip=True) if company_elem else ''
+            # Find company name - look for any link with /company/ in href
+            company_link = element.find('a', {'href': lambda x: x and '/company/' in x})
+            company_name = 'Unknown'
+            if company_link:
+                # Try to get text from the link or nearby elements
+                text = company_link.get_text(strip=True)
+                # If it's just "View Company Profile", look for the name in the listing
+                if 'View Company Profile' in text or not text:
+                    # Try to find company name in the listing content
+                    all_text = element.get_text(separator=' ', strip=True)
+                    # Company name usually appears after the job title
+                    parts = all_text.split(title)
+                    if len(parts) > 1:
+                        # Take words after title until we hit other keywords
+                        after_title = parts[1].strip()
+                        words = after_title.split()
+                        # Get company name (first few words before keywords like "New", "Full-Time", etc.)
+                        company_words = []
+                        for word in words:
+                            if word in ['New', 'Featured', 'Full-Time', 'Part-Time', 'Hourly', 'United', 'States', 'Anywhere', 'World', 'Remote']:
+                                break
+                            company_words.append(word)
+                        company_name = ' '.join(company_words) if company_words else 'Unknown'
+                else:
+                    company_name = text
             
-            # Find description or summary
-            description_elem = element.find('p', class_='description')
-            if not description_elem:
-                description_elem = element.find('div', class_='description')
-            description = description_elem.get_text(strip=True) if description_elem else ''
+            # Get description from the listing text or meta info
+            description = ''
+            # Try to extract salary or job type as part of description
+            meta_info = element.find('p', class_='new-listing__header__icons__date')
+            if not meta_info:
+                # Get all text as description
+                all_text = element.get_text(separator=' ', strip=True)
+                description = all_text[:300]
+            else:
+                description = meta_info.get_text(strip=True)
             
-            # Create job ID from URL
-            job_id = f"weworkremotely_{url.split('/')[-1]}" if url else f"weworkremotely_{title}"
+            # Create job ID
+            job_id = f"weworkremotely_{url.split('/')[-1]}" if url else f"weworkremotely_{title[:20]}"
             
             return {
                 'job_id': job_id,
                 'title': title,
                 'description': description,
                 'url': url,
-                'company_name': company_name or 'Unknown',
+                'company_name': company_name,
                 'source': 'weworkremotely'
             }
         except Exception as e:
